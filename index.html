@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ryanify — Web Player</title>
+<style>
+  :root {
+    --bg: #000000;
+    --panel: #121212;
+    --panel-2: #181818;
+    --panel-3: #242424;
+    --text: #ffffff;
+    --muted: #b3b3b3;
+    --accent: #1db954;
+    --accent-bright: #1ed760;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: grid;
+    grid-template-rows: 1fr 90px;
+    grid-template-columns: 260px 1fr;
+    grid-template-areas:
+      "sidebar main"
+      "player player";
+    overflow: hidden;
+  }
+
+  /* ── Sidebar ─────────────────────────────── */
+  .sidebar {
+    grid-area: sidebar;
+    background: var(--bg);
+    padding: 24px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 12px 20px;
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+  }
+  .logo .disc {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: radial-gradient(circle at center, var(--bg) 0 18%, var(--accent) 19% 100%);
+    box-shadow: inset 0 0 0 3px var(--accent);
+    position: relative;
+  }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    color: var(--muted);
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    transition: color .15s;
+    user-select: none;
+  }
+  .nav-item:hover, .nav-item.active { color: var(--text); }
+  .nav-item svg { width: 22px; height: 22px; flex-shrink: 0; }
+  .sidebar hr { border: none; border-top: 1px solid #282828; margin: 10px 12px; }
+  .playlist-link {
+    padding: 7px 12px;
+    color: var(--muted);
+    font-size: 13.5px;
+    cursor: pointer;
+    border-radius: 4px;
+  }
+  .playlist-link:hover { color: var(--text); }
+
+  /* ── Main ────────────────────────────────── */
+  .main {
+    grid-area: main;
+    background: linear-gradient(180deg, #1f3a2c 0, var(--panel) 320px);
+    border-radius: 8px;
+    margin: 8px 8px 0 0;
+    overflow-y: auto;
+    padding: 24px 28px 40px;
+  }
+  .greeting { font-size: 30px; font-weight: 800; margin-bottom: 20px; }
+  .shelf-title { font-size: 21px; font-weight: 800; margin: 28px 0 14px; }
+  .card-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 18px;
+  }
+  .card {
+    background: var(--panel-2);
+    border-radius: 8px;
+    padding: 14px;
+    cursor: pointer;
+    transition: background .2s;
+    position: relative;
+  }
+  .card:hover { background: var(--panel-3); }
+  .card .art {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 6px;
+    margin-bottom: 12px;
+    box-shadow: 0 8px 20px rgba(0,0,0,.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 42px;
+  }
+  .card h3 { font-size: 15px; font-weight: 700; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card p { font-size: 13px; color: var(--muted); }
+  .card .play-btn {
+    position: absolute;
+    right: 22px; bottom: 78px;
+    width: 46px; height: 46px;
+    border-radius: 50%;
+    background: var(--accent-bright);
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity .2s, transform .2s;
+    box-shadow: 0 8px 16px rgba(0,0,0,.4);
+    cursor: pointer;
+  }
+  .card:hover .play-btn { opacity: 1; transform: translateY(0); }
+  .card .play-btn svg { width: 20px; height: 20px; fill: #000; }
+
+  /* ── Track list ──────────────────────────── */
+  .tracklist { margin-top: 8px; }
+  .track {
+    display: grid;
+    grid-template-columns: 34px 44px 1fr auto;
+    align-items: center;
+    gap: 14px;
+    padding: 8px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .track:hover { background: rgba(255,255,255,.08); }
+  .track.playing .t-title { color: var(--accent-bright); }
+  .track .t-num { color: var(--muted); font-size: 15px; text-align: center; font-variant-numeric: tabular-nums; }
+  .track .t-art {
+    width: 44px; height: 44px;
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+  }
+  .track .t-title { font-size: 15px; font-weight: 500; }
+  .track .t-artist { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .track .t-dur { color: var(--muted); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+
+  /* ── Player bar ──────────────────────────── */
+  .player {
+    grid-area: player;
+    background: var(--bg);
+    border-top: 1px solid #282828;
+    display: grid;
+    grid-template-columns: 1fr 2fr 1fr;
+    align-items: center;
+    padding: 0 16px;
+    gap: 16px;
+  }
+  .now-playing { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .now-playing .np-art {
+    width: 56px; height: 56px;
+    border-radius: 6px;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px;
+    background: var(--panel-3);
+  }
+  .now-playing .np-title { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .now-playing .np-artist { font-size: 12px; color: var(--muted); }
+
+  .transport { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .transport-buttons { display: flex; align-items: center; gap: 22px; }
+  .tp-btn {
+    background: none; border: none; cursor: pointer;
+    color: var(--muted);
+    display: flex; align-items: center; justify-content: center;
+    padding: 4px;
+    transition: color .15s, transform .1s;
+  }
+  .tp-btn:hover { color: var(--text); }
+  .tp-btn.on { color: var(--accent-bright); }
+  .tp-btn svg { width: 18px; height: 18px; fill: currentColor; }
+  .tp-btn.big {
+    width: 36px; height: 36px;
+    background: var(--text);
+    color: #000;
+    border-radius: 50%;
+  }
+  .tp-btn.big:hover { transform: scale(1.06); color: #000; }
+  .tp-btn.big svg { width: 18px; height: 18px; }
+
+  .seek-row { display: flex; align-items: center; gap: 10px; width: 100%; max-width: 600px; }
+  .seek-row .time { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 38px; }
+  .seek-row .time:last-child { text-align: right; }
+  .bar {
+    flex: 1;
+    height: 4px;
+    background: #4d4d4d;
+    border-radius: 2px;
+    cursor: pointer;
+    position: relative;
+  }
+  .bar .fill {
+    height: 100%;
+    width: 0%;
+    background: var(--text);
+    border-radius: 2px;
+    pointer-events: none;
+  }
+  .bar:hover .fill { background: var(--accent-bright); }
+  .bar:hover .fill::after {
+    content: "";
+    position: absolute;
+    right: -6px; top: 50%;
+    transform: translateY(-50%);
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--text);
+  }
+  .bar .fill { position: relative; }
+
+  .extras { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+  .extras .bar { max-width: 110px; }
+
+  @media (max-width: 760px) {
+    body { grid-template-columns: 0 1fr; }
+    .sidebar { display: none; }
+    .main { margin: 8px; }
+    .player { grid-template-columns: 1fr 1.4fr; }
+    .extras { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="logo"><span class="disc"></span>Ryanify</div>
+  <div class="nav-item active" data-view="home">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l9 8h-3v9h-5v-6h-2v6H6v-9H3l9-8z"/></svg>
+    Home
+  </div>
+  <div class="nav-item">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+    Search
+  </div>
+  <div class="nav-item">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h2v16H4zM9 4h2v16H9zM14 5l7 14-1.8.9L12.2 6z"/></svg>
+    Your Library
+  </div>
+  <hr>
+  <div class="playlist-link">Liberty Study Mix</div>
+  <div class="playlist-link">Late Night Coding</div>
+  <div class="playlist-link">Campus Walks</div>
+  <div class="playlist-link">Gym Session</div>
+  <div class="playlist-link">Sunday Chill</div>
+</aside>
+
+<main class="main">
+  <h1 class="greeting" id="greeting">Good afternoon</h1>
+
+  <h2 class="shelf-title">Made for Ryan</h2>
+  <div class="card-row" id="cards"></div>
+
+  <h2 class="shelf-title">Liberty Study Mix</h2>
+  <div class="tracklist" id="tracklist"></div>
+</main>
+
+<footer class="player">
+  <div class="now-playing">
+    <div class="np-art" id="npArt">🎵</div>
+    <div style="min-width:0">
+      <div class="np-title" id="npTitle">Nothing playing</div>
+      <div class="np-artist" id="npArtist">Pick a track to start</div>
+    </div>
+  </div>
+
+  <div class="transport">
+    <div class="transport-buttons">
+      <button class="tp-btn" id="btnShuffle" title="Shuffle">
+        <svg viewBox="0 0 24 24"><path d="M16 3h5v5h-2V6.4l-4.3 4.3-1.4-1.4L17.6 5H16V3zM3 6h5.2l2.1 2.1-1.4 1.4L7.4 8H3V6zm13.6 11H16v2h5v-5h-2v1.6l-4.3-4.3-1.4 1.4 4.3 4.3zM3 18h4.4l3.5-3.5-1.4-1.4L6.6 16H3v2z"/></svg>
+      </button>
+      <button class="tp-btn" id="btnPrev" title="Previous">
+        <svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14l-10-7z"/></svg>
+      </button>
+      <button class="tp-btn big" id="btnPlay" title="Play / pause">
+        <svg id="iconPlay" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        <svg id="iconPause" viewBox="0 0 24 24" style="display:none"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+      </button>
+      <button class="tp-btn" id="btnNext" title="Next">
+        <svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5l10 7-10 7z"/></svg>
+      </button>
+      <button class="tp-btn" id="btnRepeat" title="Repeat">
+        <svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
+      </button>
+    </div>
+    <div class="seek-row">
+      <span class="time" id="timeCur">0:00</span>
+      <div class="bar" id="seekBar"><div class="fill" id="seekFill"></div></div>
+      <span class="time" id="timeDur">0:00</span>
+    </div>
+  </div>
+
+  <div class="extras">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="#b3b3b3"><path d="M3 10v4h4l5 5V5L7 10H3zm13.5 2a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z"/></svg>
+    <div class="bar" id="volBar"><div class="fill" id="volFill" style="width:70%"></div></div>
+  </div>
+</footer>
+
+<script>
+"use strict";
+
+/* ── Catalog ──────────────────────────────────
+   Tracks are synthesized live with the Web Audio API so the
+   player is fully playable with zero audio assets. Each track
+   defines a tempo, a chord loop, a scale for the lead melody,
+   and a vibe (art emoji + gradient). */
+const TRACKS = [
+  { title: "Freshman Sunrise",  artist: "Ryan K",          emoji: "🌅", hue: 24,  bpm: 84,  dur: 96,
+    chords: [[0,4,7,11],[5,9,12,16],[7,11,14,17],[0,4,7,11]], root: 220.0, scale: [0,2,4,7,9] },
+  { title: "Liberty Lights",    artist: "Campus Echoes",   emoji: "🏫", hue: 210, bpm: 92,  dur: 104,
+    chords: [[0,3,7,10],[8,12,15,19],[5,8,12,15],[7,10,14,17]], root: 196.0, scale: [0,3,5,7,10] },
+  { title: "Dorm Room Beats",   artist: "Lo-Fi Ryan",      emoji: "🎧", hue: 280, bpm: 76,  dur: 88,
+    chords: [[0,4,7,14],[9,12,16,19],[5,9,12,16],[7,11,14,17]], root: 174.6, scale: [0,2,4,7,9,11] },
+  { title: "Midnight Library",  artist: "Study Waves",     emoji: "📚", hue: 160, bpm: 70,  dur: 112,
+    chords: [[0,3,7,12],[3,7,10,15],[5,8,12,17],[10,14,17,22]], root: 164.8, scale: [0,3,5,7,10] },
+  { title: "Coffee Run",        artist: "The Quad",        emoji: "☕", hue: 40,  bpm: 104, dur: 92,
+    chords: [[0,4,7,11],[2,5,9,12],[5,9,12,16],[7,11,14,16]], root: 233.1, scale: [0,2,4,5,7,9,11] },
+  { title: "Game Day",          artist: "Flames Anthem",   emoji: "🔥", hue: 0,   bpm: 120, dur: 84,
+    chords: [[0,3,7,12],[5,8,12,17],[7,10,14,19],[0,3,7,12]], root: 220.0, scale: [0,3,5,7,10,12] },
+  { title: "Sunday Chill",      artist: "Ryan K",          emoji: "🌿", hue: 130, bpm: 66,  dur: 108,
+    chords: [[0,4,7,11],[5,9,12,16],[9,12,16,19],[7,11,14,17]], root: 196.0, scale: [0,2,4,7,9] },
+  { title: "Late Night Coding", artist: "Syntax Dreams",   emoji: "💻", hue: 250, bpm: 88,  dur: 100,
+    chords: [[0,3,7,10],[5,8,12,15],[8,12,15,19],[7,10,14,17]], root: 185.0, scale: [0,3,5,7,10] },
+];
+
+const PLAYLISTS = [
+  { name: "Liberty Study Mix",  desc: "Focus tracks for long library nights",  emoji: "📚", hue: 160, start: 3 },
+  { name: "Late Night Coding",  desc: "Beats to debug to",                     emoji: "💻", hue: 250, start: 7 },
+  { name: "Campus Walks",       desc: "Sunrise strolls across the quad",       emoji: "🌅", hue: 24,  start: 0 },
+  { name: "Gym Session",        desc: "High energy, zero excuses",             emoji: "🔥", hue: 0,   start: 5 },
+  { name: "Sunday Chill",       desc: "Slow mornings, warm coffee",            emoji: "🌿", hue: 130, start: 6 },
+];
+
+/* ── Synth engine ───────────────────────────── */
+let ctx = null, master = null;
+let current = -1, playing = false, shuffle = false, repeat = false;
+let startedAt = 0, pausedAt = 0, schedTimer = null, nextNoteTime = 0, stepIndex = 0;
+let volume = 0.7;
+const activeNodes = new Set();
+
+function audio() {
+  if (!ctx) {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    master = ctx.createGain();
+    master.gain.value = volume * 0.5;
+    const comp = ctx.createDynamicsCompressor();
+    master.connect(comp).connect(ctx.destination);
+  }
+  if (ctx.state === "suspended") ctx.resume();
+  return ctx;
+}
+
+function note(freq, time, len, type, gain, filterFreq) {
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+  const f = ctx.createBiquadFilter();
+  osc.type = type;
+  osc.frequency.value = freq;
+  f.type = "lowpass";
+  f.frequency.value = filterFreq;
+  g.gain.setValueAtTime(0, time);
+  g.gain.linearRampToValueAtTime(gain, time + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.001, time + len);
+  osc.connect(f).connect(g).connect(master);
+  osc.start(time);
+  osc.stop(time + len + 0.05);
+  activeNodes.add(osc);
+  osc.onended = () => activeNodes.delete(osc);
+}
+
+function kick(time) {
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+  osc.frequency.setValueAtTime(140, time);
+  osc.frequency.exponentialRampToValueAtTime(45, time + 0.12);
+  g.gain.setValueAtTime(0.5, time);
+  g.gain.exponentialRampToValueAtTime(0.001, time + 0.25);
+  osc.connect(g).connect(master);
+  osc.start(time); osc.stop(time + 0.3);
+  activeNodes.add(osc);
+  osc.onended = () => activeNodes.delete(osc);
+}
+
+function hat(time) {
+  const len = 0.06;
+  const buf = ctx.createBuffer(1, ctx.sampleRate * len, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const f = ctx.createBiquadFilter();
+  f.type = "highpass"; f.frequency.value = 7000;
+  const g = ctx.createGain(); g.gain.value = 0.12;
+  src.connect(f).connect(g).connect(master);
+  src.start(time);
+  activeNodes.add(src);
+  src.onended = () => activeNodes.delete(src);
+}
+
+const semi = (root, s) => root * Math.pow(2, s / 12);
+
+/* mulberry32 keeps each track's melody deterministic per playthrough */
+function rng(seed) {
+  return function() {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+let melodyRand = rng(1);
+
+function scheduleLoop() {
+  const t = TRACKS[current];
+  const stepLen = 60 / t.bpm / 2;            /* 8th notes */
+  while (nextNoteTime < ctx.currentTime + 0.25) {
+    const bar = Math.floor(stepIndex / 8) % t.chords.length;
+    const step = stepIndex % 8;
+    const chord = t.chords[bar];
+
+    if (step === 0) {
+      chord.forEach(s =>
+        note(semi(t.root, s), nextNoteTime, stepLen * 7.5, "triangle", 0.10, 1200));
+      note(semi(t.root, chord[0]) / 2, nextNoteTime, stepLen * 7.5, "sine", 0.22, 400);
+    }
+    if (step % 4 === 0) kick(nextNoteTime);
+    if (step % 2 === 1) hat(nextNoteTime);
+    if (step % 2 === 0 && melodyRand() < 0.7) {
+      const deg = t.scale[Math.floor(melodyRand() * t.scale.length)];
+      note(semi(t.root * 2, deg), nextNoteTime, stepLen * 1.8, "sine", 0.09, 3000);
+    }
+    nextNoteTime += stepLen;
+    stepIndex++;
+  }
+}
+
+function stopAudio() {
+  clearInterval(schedTimer);
+  schedTimer = null;
+  activeNodes.forEach(n => { try { n.stop(); } catch (e) {} });
+  activeNodes.clear();
+}
+
+/* ── Player control ─────────────────────────── */
+function elapsed() {
+  if (current < 0) return 0;
+  return playing ? pausedAt + (ctx.currentTime - startedAt) : pausedAt;
+}
+
+function playTrack(i, fromStart = true) {
+  audio();
+  stopAudio();
+  current = i;
+  if (fromStart) { pausedAt = 0; melodyRand = rng(i + 1); }
+  startedAt = ctx.currentTime;
+  nextNoteTime = ctx.currentTime + 0.05;
+  stepIndex = Math.floor(pausedAt / (60 / TRACKS[i].bpm / 2));
+  playing = true;
+  schedTimer = setInterval(scheduleLoop, 100);
+  scheduleLoop();
+  renderNowPlaying();
+  renderTracklist();
+  setPlayIcon();
+}
+
+function togglePlay() {
+  if (current < 0) { playTrack(0); return; }
+  if (playing) {
+    pausedAt = elapsed();
+    playing = false;
+    stopAudio();
+  } else {
+    playTrack(current, false);
+  }
+  setPlayIcon();
+}
+
+function nextTrack() {
+  if (current < 0) { playTrack(0); return; }
+  const i = shuffle
+    ? (current + 1 + Math.floor(Math.random() * (TRACKS.length - 1))) % TRACKS.length
+    : (current + 1) % TRACKS.length;
+  playTrack(i);
+}
+
+function prevTrack() {
+  if (current < 0) { playTrack(0); return; }
+  if (elapsed() > 3) { playTrack(current); return; }
+  playTrack((current - 1 + TRACKS.length) % TRACKS.length);
+}
+
+/* ── UI ─────────────────────────────────────── */
+const $ = id => document.getElementById(id);
+const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+const artStyle = (hue, extra = "") =>
+  `background:linear-gradient(135deg,hsl(${hue},70%,45%),hsl(${(hue + 60) % 360},70%,25%));${extra}`;
+
+function setPlayIcon() {
+  $("iconPlay").style.display = playing ? "none" : "";
+  $("iconPause").style.display = playing ? "" : "none";
+}
+
+function renderNowPlaying() {
+  const t = TRACKS[current];
+  $("npArt").textContent = t.emoji;
+  $("npArt").style.cssText = artStyle(t.hue);
+  $("npTitle").textContent = t.title;
+  $("npArtist").textContent = t.artist;
+  $("timeDur").textContent = fmt(t.dur);
+  document.title = `${t.title} · ${t.artist} — Ryanify`;
+}
+
+function renderTracklist() {
+  $("tracklist").innerHTML = TRACKS.map((t, i) => `
+    <div class="track${i === current ? " playing" : ""}" data-i="${i}">
+      <div class="t-num">${i === current && playing ? "▶" : i + 1}</div>
+      <div class="t-art" style="${artStyle(t.hue)}">${t.emoji}</div>
+      <div style="min-width:0">
+        <div class="t-title">${t.title}</div>
+        <div class="t-artist">${t.artist}</div>
+      </div>
+      <div class="t-dur">${fmt(t.dur)}</div>
+    </div>`).join("");
+  document.querySelectorAll(".track").forEach(el =>
+    el.addEventListener("click", () => playTrack(+el.dataset.i)));
+}
+
+function renderCards() {
+  $("cards").innerHTML = PLAYLISTS.map((p, i) => `
+    <div class="card" data-start="${p.start}">
+      <div class="art" style="${artStyle(p.hue)}">${p.emoji}</div>
+      <h3>${p.name}</h3>
+      <p>${p.desc}</p>
+      <button class="play-btn" aria-label="Play ${p.name}">
+        <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+      </button>
+    </div>`).join("");
+  document.querySelectorAll(".card").forEach(el =>
+    el.addEventListener("click", () => playTrack(+el.dataset.start)));
+}
+
+function bindBar(barId, fillId, onSet) {
+  const bar = $(barId);
+  const set = e => {
+    const r = bar.getBoundingClientRect();
+    onSet(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)));
+  };
+  let drag = false;
+  bar.addEventListener("mousedown", e => { drag = true; set(e); });
+  window.addEventListener("mousemove", e => drag && set(e));
+  window.addEventListener("mouseup", () => drag = false);
+}
+
+bindBar("seekBar", "seekFill", frac => {
+  if (current < 0) return;
+  pausedAt = frac * TRACKS[current].dur;
+  if (playing) playTrack(current, false); else updateProgress();
+});
+bindBar("volBar", "volFill", frac => {
+  volume = frac;
+  $("volFill").style.width = `${frac * 100}%`;
+  if (master) master.gain.value = volume * 0.5;
+});
+
+$("btnPlay").addEventListener("click", togglePlay);
+$("btnNext").addEventListener("click", nextTrack);
+$("btnPrev").addEventListener("click", prevTrack);
+$("btnShuffle").addEventListener("click", e => {
+  shuffle = !shuffle;
+  e.currentTarget.classList.toggle("on", shuffle);
+});
+$("btnRepeat").addEventListener("click", e => {
+  repeat = !repeat;
+  e.currentTarget.classList.toggle("on", repeat);
+});
+document.addEventListener("keydown", e => {
+  if (e.code === "Space" && e.target === document.body) {
+    e.preventDefault();
+    togglePlay();
+  }
+});
+
+function updateProgress() {
+  if (current < 0) return;
+  const t = TRACKS[current];
+  const el = Math.min(elapsed(), t.dur);
+  $("timeCur").textContent = fmt(el);
+  $("seekFill").style.width = `${(el / t.dur) * 100}%`;
+  if (playing && el >= t.dur) {
+    if (repeat) playTrack(current);
+    else nextTrack();
+  }
+}
+(function loop() {
+  updateProgress();
+  requestAnimationFrame(loop);
+})();
+
+const h = new Date().getHours();
+$("greeting").textContent =
+  h < 12 ? "Good morning, Ryan" : h < 18 ? "Good afternoon, Ryan" : "Good evening, Ryan";
+
+renderCards();
+renderTracklist();
+</script>
+</body>
+</html>
