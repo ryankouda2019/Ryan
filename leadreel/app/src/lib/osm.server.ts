@@ -11,12 +11,13 @@ import type { LeadDto, LeadSearchCenter } from "./leads.shared";
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
 const OVERPASS_URLS = [
   "https://overpass-api.de/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
 ] as const;
 const USER_AGENT = "LeadReel/1.0 (Higgsfield app; local business lead discovery)";
 const GEOCODE_TIMEOUT_MS = 12_000;
-const OVERPASS_TIMEOUT_MS = 40_000;
-const OVERPASS_QUERY_TIMEOUT_S = 30;
+const OVERPASS_TIMEOUT_MS = 30_000;
+const OVERPASS_QUERY_TIMEOUT_S = 25;
 export const MAX_SEARCH_RESULTS = 60;
 
 export class LeadSearchError extends Error {
@@ -240,8 +241,41 @@ function singularize(term: string): string {
   return term;
 }
 
+const CATEGORY_KEY_REGEX = `^(${CATEGORY_KEYS.join("|")})$`;
+const EARTH_RADIUS_M = 6_371_000;
+
+/** Bounding box (south, west, north, east) covering `radiusM` around the center. */
+function bboxAround(center: LeadSearchCenter, radiusM: number): string {
+  const dLat = (radiusM / EARTH_RADIUS_M) * (180 / Math.PI);
+  const cosLat = Math.max(Math.cos((center.lat * Math.PI) / 180), 0.01);
+  const dLon = dLat / cosLat;
+  const south = Math.max(center.lat - dLat, -90);
+  const north = Math.min(center.lat + dLat, 90);
+  const west = Math.max(center.lon - dLon, -180);
+  const east = Math.min(center.lon + dLon, 180);
+  return [south, west, north, east].map((value) => value.toFixed(6)).join(",");
+}
+
+/** Great-circle distance in meters (haversine). */
+function distanceMeters(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLon = toRad(b.lon - a.lon);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/**
+ * A bounding-box query (index-friendly — `around` on ways makes the public
+ * servers crawl and time out). Exact synonym tags are cheap unions; two regex
+ * clauses cover "category value mentions the term" and "business name mentions
+ * the term", both scoped to elements that carry a business category key so the
+ * scan never touches every named road or building. Nodes + ways only. The
+ * circle is enforced afterwards with `distanceMeters`.
+ */
 function buildOverpassQuery(term: string, center: LeadSearchCenter, radiusM: number): string {
-  const around = `(around:${Math.round(radiusM)},${center.lat.toFixed(6)},${center.lon.toFixed(6)})`;
   const singular = singularize(term);
   const exactPairs = new Set<string>([...(SYNONYMS[term] ?? []), ...(SYNONYMS[singular] ?? [])]);
   const regex = termRegex(singular);
@@ -249,16 +283,17 @@ function buildOverpassQuery(term: string, center: LeadSearchCenter, radiusM: num
 
   for (const pair of exactPairs) {
     const [key, value] = pair.split("=");
-    if (key && value) clauses.push(`nwr${around}["name"]["${key}"="${value}"];`);
+    if (key && value) clauses.push(`nw["name"]["${key}"="${value}"];`);
   }
   if (regex.length > 0) {
-    for (const key of CATEGORY_KEYS) {
-      clauses.push(`nwr${around}["name"]["${key}"~"${regex}",i];`);
-    }
-    clauses.push(`nwr${around}["name"~"${regex}",i];`);
+    clauses.push(`nw["name"][~"${CATEGORY_KEY_REGEX}"~"${regex}",i];`);
+    clauses.push(`nw["name"~"${regex}",i][~"${CATEGORY_KEY_REGEX}"~"."];`);
   }
 
-  return `[out:json][timeout:${OVERPASS_QUERY_TIMEOUT_S}];(${clauses.join("")});out center tags ${MAX_SEARCH_RESULTS * 3};`;
+  return (
+    `[out:json][timeout:${OVERPASS_QUERY_TIMEOUT_S}][bbox:${bboxAround(center, radiusM)}];` +
+    `(${clauses.join("")});out center tags ${MAX_SEARCH_RESULTS * 3};`
+  );
 }
 
 function humanizeCategory(tags: Record<string, string>): string | null {
@@ -434,6 +469,9 @@ export async function searchNearbyBusinesses(
   for (const element of body.elements ?? []) {
     const lead = elementToLead(element);
     if (!lead) continue;
+    if (lead.lat != null && lead.lon != null) {
+      if (distanceMeters(center, { lat: lead.lat, lon: lead.lon }) > radiusM) continue;
+    }
     const dedupeKey = `${lead.name.toLowerCase()}|${lead.address ?? ""}|${lead.city ?? ""}`;
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
