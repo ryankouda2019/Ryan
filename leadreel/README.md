@@ -1,6 +1,7 @@
 # LeadReel — find local leads, pitch them with Kling 3.0 videos
 
-**Live app:** https://leadreel.higgsfield.app
+**Live app:** https://leadreel.higgsfield.app (open it while signed in to Higgsfield —
+like every Higgsfield app, the address answers `401` to anonymous requests)
 
 LeadReel is a Higgsfield app. You sign in with your Higgsfield account, search for
 local businesses (for example *dentists in Lynchburg, VA*), save the ones you want
