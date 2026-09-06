@@ -100,7 +100,7 @@ export const Route = createFileRoute("/api/leads/export")({
             ),
           ];
 
-          return new Response(`﻿${lines.join("\r\n")}\r\n`, {
+          return new Response(`\uFEFF${lines.join("\r\n")}\r\n`, {
             status: 200,
             headers: {
               "content-type": "text/csv; charset=utf-8",

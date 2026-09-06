@@ -1315,9 +1315,9 @@ export function PresetTemplate(_props: PresetTemplateProps = {}) {
   }, [scopeKey]);
 
   // ── LeadReel product state (D1, via server functions) ─────────────────────
-  const leadsKey = ["leadreel", scopeKey, "leads"] as const;
-  const pitchesKey = ["leadreel", scopeKey, "pitches"] as const;
-  const profileKey = ["leadreel", scopeKey, "profile"] as const;
+  const leadsKey = useMemo(() => ["leadreel", scopeKey, "leads"] as const, [scopeKey]);
+  const pitchesKey = useMemo(() => ["leadreel", scopeKey, "pitches"] as const, [scopeKey]);
+  const profileKey = useMemo(() => ["leadreel", scopeKey, "profile"] as const, [scopeKey]);
 
   const savedQuery = useQuery({
     queryKey: leadsKey,
