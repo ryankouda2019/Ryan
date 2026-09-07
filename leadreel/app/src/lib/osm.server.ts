@@ -16,8 +16,11 @@ const OVERPASS_URLS = [
 ] as const;
 const USER_AGENT = "LeadReel/1.0 (Higgsfield app; local business lead discovery)";
 const GEOCODE_TIMEOUT_MS = 12_000;
-const OVERPASS_EXACT_TIMEOUT_MS = 20_000;
-const OVERPASS_FUZZY_TIMEOUT_MS = 12_000;
+// The indexed pass answers in ~2s when healthy, so a long wait only stacks up
+// against the budget. The scanning pass measured ~17s on a 25km box, so cutting
+// it short throws away work that was about to succeed.
+const OVERPASS_EXACT_TIMEOUT_MS = 12_000;
+const OVERPASS_FUZZY_TIMEOUT_MS = 20_000;
 const OVERPASS_QUERY_TIMEOUT_S = 20;
 /** Whole-search wall clock. A search that takes longer has already failed the user. */
 const SEARCH_BUDGET_MS = 35_000;
