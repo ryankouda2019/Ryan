@@ -16,8 +16,11 @@ const OVERPASS_URLS = [
 ] as const;
 const USER_AGENT = "LeadReel/1.0 (Higgsfield app; local business lead discovery)";
 const GEOCODE_TIMEOUT_MS = 12_000;
-const OVERPASS_TIMEOUT_MS = 30_000;
-const OVERPASS_QUERY_TIMEOUT_S = 25;
+const OVERPASS_EXACT_TIMEOUT_MS = 25_000;
+const OVERPASS_FUZZY_TIMEOUT_MS = 18_000;
+const OVERPASS_QUERY_TIMEOUT_S = 20;
+/** Skip the scanning pass when the indexed pass already spent this long. */
+const FUZZY_PASS_BUDGET_MS = 14_000;
 export const MAX_SEARCH_RESULTS = 60;
 
 export class LeadSearchError extends Error {
@@ -282,32 +285,45 @@ function distanceMeters(a: { lat: number; lon: number }, b: { lat: number; lon: 
  * `withoutWebsite` filters inside the query rather than after it: the result
  * cap would otherwise be filled by businesses that do have a site, leaving
  * only a handful of the ones actually being looked for.
+ *
+ * Split into two passes because they cost wildly different amounts. The EXACT
+ * pass matches known tag values and is index-backed, so it answers in a second
+ * or two. The FUZZY pass regex-matches category values and business names,
+ * which Overpass cannot index — it scans the box and is the pass that times out
+ * on a busy public server. Running them separately means a slow fuzzy pass
+ * trims the result set instead of failing the whole search.
  */
-function buildOverpassQuery(
+function buildOverpassQueries(
   term: string,
   center: LeadSearchCenter,
   radiusM: number,
   withoutWebsite: boolean,
-): string {
+): { exact?: string; fuzzy?: string } {
   const singular = singularize(term);
   const exactPairs = new Set<string>([...(SYNONYMS[term] ?? []), ...(SYNONYMS[singular] ?? [])]);
   const regex = termRegex(singular);
   const noSite = withoutWebsite ? NO_WEBSITE_FILTER : "";
-  const clauses: string[] = [];
+  const wrap = (clauses: string[]) =>
+    `[out:json][timeout:${OVERPASS_QUERY_TIMEOUT_S}][bbox:${bboxAround(center, radiusM)}];` +
+    `(${clauses.join("")});out center tags ${MAX_SEARCH_RESULTS * 3};`;
 
+  const exactClauses: string[] = [];
   for (const pair of exactPairs) {
     const [key, value] = pair.split("=");
-    if (key && value) clauses.push(`nw["name"]["${key}"="${value}"]${noSite};`);
+    if (key && value) exactClauses.push(`nw["name"]["${key}"="${value}"]${noSite};`);
   }
-  if (regex.length > 0) {
-    clauses.push(`nw["name"][~"${CATEGORY_KEY_REGEX}"~"${regex}",i]${noSite};`);
-    clauses.push(`nw["name"~"${regex}",i][~"${CATEGORY_KEY_REGEX}"~"."]${noSite};`);
-  }
+  const fuzzyClauses =
+    regex.length > 0
+      ? [
+          `nw["name"][~"${CATEGORY_KEY_REGEX}"~"${regex}",i]${noSite};`,
+          `nw["name"~"${regex}",i][~"${CATEGORY_KEY_REGEX}"~"."]${noSite};`,
+        ]
+      : [];
 
-  return (
-    `[out:json][timeout:${OVERPASS_QUERY_TIMEOUT_S}][bbox:${bboxAround(center, radiusM)}];` +
-    `(${clauses.join("")});out center tags ${MAX_SEARCH_RESULTS * 3};`
-  );
+  return {
+    ...(exactClauses.length > 0 ? { exact: wrap(exactClauses) } : {}),
+    ...(fuzzyClauses.length > 0 ? { fuzzy: wrap(fuzzyClauses) } : {}),
+  };
 }
 
 function humanizeCategory(tags: Record<string, string>): string | null {
@@ -429,7 +445,7 @@ export async function geocodeLocation(location: string): Promise<LeadSearchCente
   return { lat, lon, label };
 }
 
-async function runOverpass(query: string): Promise<OverpassResponse> {
+async function runOverpass(query: string, timeoutMs: number): Promise<OverpassResponse> {
   let lastError: unknown;
   for (const endpoint of OVERPASS_URLS) {
     try {
@@ -441,7 +457,7 @@ async function runOverpass(query: string): Promise<OverpassResponse> {
           "Content-Type": "application/x-www-form-urlencoded",
         },
         body: new URLSearchParams({ data: query }),
-        signal: AbortSignal.timeout(OVERPASS_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       if (!response.ok) {
         lastError = new Error(`Overpass ${endpoint} answered ${response.status}`);
@@ -477,11 +493,35 @@ export async function searchNearbyBusinesses(
     throw new LeadSearchError("search_failed", "Describe the kind of business you're looking for.");
   }
   const radiusM = Math.min(Math.max(radiusKm, 1), 50) * 1000;
-  const body = await runOverpass(buildOverpassQuery(term, center, radiusM, withoutWebsite));
+  const queries = buildOverpassQueries(term, center, radiusM, withoutWebsite);
+
+  const elements: OverpassElement[] = [];
+  let failure: unknown;
+  const startedAt = Date.now();
+
+  if (queries.exact != null) {
+    try {
+      const body = await runOverpass(queries.exact, OVERPASS_EXACT_TIMEOUT_MS);
+      elements.push(...(body.elements ?? []));
+    } catch (error) {
+      failure = error;
+    }
+  }
+  // Well-known terms already have their matches; a slow scanning pass then only
+  // costs the user extra names, never the whole search.
+  if (queries.fuzzy != null && Date.now() - startedAt < FUZZY_PASS_BUDGET_MS) {
+    try {
+      const body = await runOverpass(queries.fuzzy, OVERPASS_FUZZY_TIMEOUT_MS);
+      elements.push(...(body.elements ?? []));
+    } catch (error) {
+      failure ??= error;
+    }
+  }
+  if (elements.length === 0 && failure != null) throw failure;
 
   const seen = new Set<string>();
   const leads: LeadDto[] = [];
-  for (const element of body.elements ?? []) {
+  for (const element of elements) {
     const lead = elementToLead(element);
     if (!lead) continue;
     // A malformed or non-http site value survives the query filter but is
@@ -490,6 +530,9 @@ export async function searchNearbyBusinesses(
     if (lead.lat != null && lead.lon != null) {
       if (distanceMeters(center, { lat: lead.lat, lon: lead.lon }) > radiusM) continue;
     }
+    // The two passes overlap, so an element can arrive twice under its own id.
+    if (seen.has(lead.sourceId)) continue;
+    seen.add(lead.sourceId);
     const dedupeKey = `${lead.name.toLowerCase()}|${lead.address ?? ""}|${lead.city ?? ""}`;
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
