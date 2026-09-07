@@ -19,15 +19,26 @@ your name and your offer, using Kling 3.0's native lip-synced audio.
    spent on those businesses instead of the ones that already have a site. The
    Leads tab also has a **No website** chip that narrows whatever is on screen,
    including your saved pipeline.
-2. **Pick a lead and write your offer** — choose a business, add your name and one or
+2. **Work the best leads first** — every lead carries an opportunity score out of
+   100, shown on its tile and used to order both the results and your saved
+   pipeline. The score combines how much the business *needs* the help (no
+   website is the loudest signal) with whether you can *reach* them at all, so a
+   business with no site and no phone number is ranked as the walk-in it is
+   rather than as a hot lead. It also decides which businesses survive the
+   60-result cap, and it exports with the CSV.
+3. **Send the message** — each lead has an outreach draft: an email (with subject)
+   and a short text message, written from that listing and your saved pitch. When
+   the business has no website the draft says so; when it has one, it names the
+   domain. Both are editable and copy to the clipboard.
+4. **Pick a lead and write your offer** — choose a business, add your name and one or
    two sentences about what you offer. The script is built automatically and can be
    previewed before generating. Tone, aspect ratio (16:9 / 9:16 / 1:1), duration
    (5–15 s), quality (720p / 1080p / 4K) and an optional start-frame image are
    adjustable.
-3. **Generate and send** — the Higgsfield host asks you to approve the credit cost,
+5. **Generate and send** — the Higgsfield host asks you to approve the credit cost,
    then Kling 3.0 renders the video on your Higgsfield credits. Finished videos
    appear under **Videos**, labelled with the lead they were made for.
-4. **Track the pipeline** — saved leads carry a status (new, contacted, replied,
+6. **Track the pipeline** — saved leads carry a status (new, contacted, replied,
    won, lost), can be filtered, and export to CSV.
 
 ## What is in this folder
@@ -44,7 +55,8 @@ Higgsfield repository and are not duplicated here.
 | `app/migrations/0001_init.sql` | Schema: `leads`, `pitches`, `pitch_profiles`. |
 | `app/src/layouts/preset.tsx` | The whole screen: lead rail, Leads / Videos / How-it-works tabs. |
 | `app/src/components/lead-card/` | `LeadCard` and `SelectedLeadCard` (Quanta primitives). |
-| `app/src/lib/leads.shared.ts` | Shared types, statuses, and the Kling 3.0 prompt builder. |
+| `app/src/components/outreach-modal/` | The editable email + text outreach draft. |
+| `app/src/lib/leads.shared.ts` | Shared types, statuses, opportunity scoring, outreach drafting, and the Kling 3.0 prompt builder. |
 | `app/src/lib/osm.server.ts` | Nominatim geocoding + Overpass business search (server only). |
 | `app/src/lib/leads.functions.ts` | Server functions: search, save, update, delete, pitches, profile. |
 | `app/src/lib/auth.server.ts` | Higgsfield auth guard (`https://fnf.internal/user`). |
