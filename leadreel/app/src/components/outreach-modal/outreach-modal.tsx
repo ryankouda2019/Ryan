@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, Clapperboard, Copy, Mail, MessageSquareText } from "lucide-react";
 import { Button } from "@higgsfield/quanta/button";
 import { Icon } from "@higgsfield/quanta/icon";
@@ -12,6 +12,7 @@ import {
   buildOutreach,
   describeLead,
   type LeadDto,
+  type OutreachDraft,
   type PitchProfile,
 } from "@/lib/leads.shared";
 
@@ -70,19 +71,19 @@ function CopyButton({ value, label }: { value: string; label: string }) {
   );
 }
 
-export function OutreachModal({ lead, profile, onOpenChange, onPitch }: OutreachModalProps) {
-  const [subject, setSubject] = useState("");
-  const [email, setEmail] = useState("");
-  const [sms, setSms] = useState("");
+const EMPTY_DRAFT: OutreachDraft = { subject: "", email: "", sms: "" };
 
-  // Re-draft whenever a different lead opens the dialog; edits live until then.
-  useEffect(() => {
+export function OutreachModal({ lead, profile, onOpenChange, onPitch }: OutreachModalProps) {
+  const draft = useMemo(() => (lead != null ? buildOutreach(lead, profile) : null), [lead, profile]);
+  // Edits are keyed by the lead rather than seeded through an effect, so opening
+  // a different lead shows its own draft without a second render pass.
+  const [edits, setEdits] = useState<({ sourceId: string } & OutreachDraft) | null>(null);
+  const current: OutreachDraft =
+    lead != null && edits?.sourceId === lead.sourceId ? edits : (draft ?? EMPTY_DRAFT);
+  const update = (patch: Partial<OutreachDraft>) => {
     if (lead == null) return;
-    const draft = buildOutreach(lead, profile);
-    setSubject(draft.subject);
-    setEmail(draft.email);
-    setSms(draft.sms);
-  }, [lead, profile]);
+    setEdits({ sourceId: lead.sourceId, ...current, ...patch });
+  };
 
   const detail = lead != null ? describeLead(lead) : "";
 
@@ -112,31 +113,31 @@ export function OutreachModal({ lead, profile, onOpenChange, onPitch }: Outreach
               <Tabs.Panel value="email" className="flex flex-col gap-3 pt-0">
                 <Input
                   label="Subject"
-                  value={subject}
-                  onChange={(event) => setSubject(event.target.value)}
+                  value={current.subject}
+                  onChange={(event) => update({ subject: event.target.value })}
                 />
                 <Textarea
                   label="Email"
                   rows={12}
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
+                  value={current.email}
+                  onChange={(event) => update({ email: event.target.value })}
                 />
                 <div className="flex flex-wrap items-center gap-2">
-                  <CopyButton value={subject} label="Subject" />
-                  <CopyButton value={email} label="Email" />
+                  <CopyButton value={current.subject} label="Subject" />
+                  <CopyButton value={current.email} label="Email" />
                 </div>
               </Tabs.Panel>
 
               <Tabs.Panel value="sms" className="flex flex-col gap-3 pt-0">
                 <Textarea
                   label="Text message"
-                  description={`${sms.length} characters — keep it under about 320 to stay in two segments.`}
+                  description={`${current.sms.length} characters — keep it under about 320 to stay in two segments.`}
                   rows={5}
-                  value={sms}
-                  onChange={(event) => setSms(event.target.value)}
+                  value={current.sms}
+                  onChange={(event) => update({ sms: event.target.value })}
                 />
                 <div className="flex flex-wrap items-center gap-2">
-                  <CopyButton value={sms} label="Message" />
+                  <CopyButton value={current.sms} label="Message" />
                 </div>
               </Tabs.Panel>
             </Tabs.Root>
