@@ -545,7 +545,16 @@ export async function searchNearbyBusinesses(
       failure ??= error;
     }
   }
-  if (elements.length === 0 && failure != null) throw failure;
+  if (elements.length === 0 && failure != null) {
+    // A wide box is the usual reason the public servers give up: 25 km covers
+    // six times the ground of 10 km. Say so instead of just "busy".
+    throw failure instanceof LeadSearchError && radiusKm > 10
+      ? new LeadSearchError(
+          "search_failed",
+          `The map data service couldn't finish a ${radiusKm} km search right now. Try a 10 km radius, or search again in a few seconds.`,
+        )
+      : failure;
+  }
 
   const seen = new Set<string>();
   const leads: LeadDto[] = [];
