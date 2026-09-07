@@ -451,7 +451,7 @@ async function runOverpass(
   query: string,
   timeoutMs: number,
   deadline: number,
-  maxEndpoints = OVERPASS_URLS.length,
+  maxEndpoints: number = OVERPASS_URLS.length,
 ): Promise<OverpassResponse> {
   let lastError: unknown;
   for (const endpoint of OVERPASS_URLS.slice(0, maxEndpoints)) {
