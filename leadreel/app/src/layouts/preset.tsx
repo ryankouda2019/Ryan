@@ -20,6 +20,7 @@ import {
   Compass,
   Download,
   Film,
+  Globe,
   Image as ImageIcon,
   Megaphone,
   Newspaper,
@@ -38,6 +39,7 @@ import { Loader } from "@higgsfield/quanta/loader";
 import { Media } from "@higgsfield/quanta/media";
 import { Modal } from "@higgsfield/quanta/modal";
 import { Select } from "@higgsfield/quanta/select";
+import { SwitchLabel } from "@higgsfield/quanta/switch";
 import { Tabs } from "@higgsfield/quanta/tabs";
 import { Toaster, toast } from "@higgsfield/quanta/sonner";
 import { Typography } from "@higgsfield/quanta/typography";
@@ -83,6 +85,7 @@ import {
   PITCH_TONES,
   PITCH_TONE_LABELS,
   RADIUS_OPTIONS_KM,
+  hasWebsite,
   isPitchTone,
   toLeadInput,
   type LeadDto,
@@ -115,7 +118,12 @@ type StatusFilter = LeadStatus | "all";
 const KLING_MODEL = "kling3_0";
 const HISTORY_QUERY = { type: "video" as const, size: 40 };
 const IMAGE_LIBRARY_QUERY = { type: "image" as const, size: 40 };
-const EXAMPLE_SEARCH: LeadSearchParams = { query: "dentist", location: "Lynchburg, VA", radiusKm: 10 };
+const EXAMPLE_SEARCH: LeadSearchParams = {
+  query: "dentist",
+  location: "Lynchburg, VA",
+  radiusKm: 10,
+  withoutWebsite: false,
+};
 
 /** Bespoke LeadReel art (crops of the app's own generated launch cover). */
 const EMPTY_STATE_IMAGES = [
@@ -558,6 +566,18 @@ function LeadRail({
                 options={RADII}
                 onChange={(value) => onSearchChange({ radiusKm: Number(value) })}
               />
+              {/* Filtered inside the map query, not after it — otherwise the
+                  result cap fills up with businesses that do have a site. */}
+              <SwitchLabel
+                size="sm"
+                label="No website only"
+                description="Businesses with no site of their own — the easiest first pitch."
+                switchProps={{
+                  checked: search.withoutWebsite,
+                  onCheckedChange: (checked: boolean) =>
+                    onSearchChange({ withoutWebsite: checked }),
+                }}
+              />
               <Button
                 type="submit"
                 variant="tertiary"
@@ -761,6 +781,8 @@ interface LeadsPanelProps {
   onViewChange: (view: LeadsView) => void;
   statusFilter: StatusFilter;
   onStatusFilterChange: (filter: StatusFilter) => void;
+  noWebsiteOnly: boolean;
+  onNoWebsiteOnlyChange: (value: boolean) => void;
   selectedLeadSourceId: string | null;
   busyLeadSourceId: string | null;
   onPitch: (lead: LeadDto) => void;
@@ -797,6 +819,8 @@ function LeadsPanel({
   onViewChange,
   statusFilter,
   onStatusFilterChange,
+  noWebsiteOnly,
+  onNoWebsiteOnlyChange,
   selectedLeadSourceId,
   busyLeadSourceId,
   onPitch,
@@ -808,11 +832,18 @@ function LeadsPanel({
 }: LeadsPanelProps) {
   const filter = filterText.trim().toLowerCase();
   const hasSearched = lastSearch != null;
+  const filtering = filter.length > 0 || noWebsiteOnly;
+  const passesFilters = (lead: LeadDto) =>
+    matchesFilter(lead, filter) && (!noWebsiteOnly || !hasWebsite(lead));
   const visibleSaved = savedLeads.filter(
-    (lead) => (statusFilter === "all" || lead.status === statusFilter) && matchesFilter(lead, filter),
+    (lead) => (statusFilter === "all" || lead.status === statusFilter) && passesFilters(lead),
   );
-  const visibleResults = results.filter((lead) => matchesFilter(lead, filter));
+  const visibleResults = results.filter(passesFilters);
   const leads = view === "results" ? visibleResults : visibleSaved;
+  const sourceLeads = view === "results" ? results : savedLeads;
+  const noWebsiteCount = sourceLeads.filter((lead) => !hasWebsite(lead)).length;
+  const showStatusChips = view === "saved" && signedIn && savedLeads.length > 0;
+  const showFilterRow = showStatusChips || sourceLeads.length > 0;
 
   const statusCounts = LEAD_STATUSES.reduce<Record<LeadStatus, number>>(
     (counts, status) => {
@@ -872,12 +903,14 @@ function LeadsPanel({
         return (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
             <Typography as="p" variant="body-md-semi-bold" color="primary">
-              {filter.length > 0 ? "No results match that filter" : `No ${lastSearch?.query ?? "businesses"} found`}
+              {filtering ? "No results match those filters" : `No ${lastSearch?.query ?? "businesses"} found`}
             </Typography>
             <Typography as="p" variant="body-sm-regular" color="tertiary">
-              {filter.length > 0
-                ? "Clear the filter above to see every result."
-                : `Nothing within ${lastSearch?.radiusKm ?? 10} km of ${center?.label ?? lastSearch?.location ?? "that location"}. Try a wider radius or a broader term like “restaurant” instead of a brand name.`}
+              {filtering
+                ? "Clear the filters above to see every result."
+                : lastSearch?.withoutWebsite === true
+                  ? `Every ${lastSearch.query} within ${lastSearch.radiusKm} km of ${center?.label ?? lastSearch.location} already has a website. Turn off “No website only” to see them all, or widen the radius.`
+                  : `Nothing within ${lastSearch?.radiusKm ?? 10} km of ${center?.label ?? lastSearch?.location ?? "that location"}. Try a wider radius or a broader term like “restaurant” instead of a brand name.`}
             </Typography>
           </div>
         );
@@ -940,7 +973,7 @@ function LeadsPanel({
             No saved leads match
           </Typography>
           <Typography as="p" variant="body-sm-regular" color="tertiary">
-            Try another status or clear the filter above.
+            Try another status or clear the filters above.
           </Typography>
         </div>
       );
@@ -986,22 +1019,41 @@ function LeadsPanel({
         ) : null}
       </div>
 
-      {view === "saved" && signedIn && savedLeads.length > 0 ? (
+      {showFilterRow ? (
         <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-          <Chip size="xs" color="neutral" selected={statusFilter === "all"} onClick={() => onStatusFilterChange("all")}>
-            All · {savedLeads.length}
+          {showStatusChips ? (
+            <>
+              <Chip
+                size="xs"
+                color="neutral"
+                selected={statusFilter === "all"}
+                onClick={() => onStatusFilterChange("all")}
+              >
+                All · {savedLeads.length}
+              </Chip>
+              {LEAD_STATUSES.map((status) => (
+                <Chip
+                  key={status}
+                  size="xs"
+                  color="neutral"
+                  selected={statusFilter === status}
+                  onClick={() => onStatusFilterChange(status)}
+                >
+                  {LEAD_STATUS_LABELS[status]} · {statusCounts[status]}
+                </Chip>
+              ))}
+              <span aria-hidden className="mx-1 h-4 w-px bg-q-border-subtle" />
+            </>
+          ) : null}
+          <Chip
+            size="xs"
+            color="neutral"
+            selected={noWebsiteOnly}
+            onClick={() => onNoWebsiteOnlyChange(!noWebsiteOnly)}
+            start={<Icon size="xs" as={Globe} />}
+          >
+            No website · {noWebsiteCount}
           </Chip>
-          {LEAD_STATUSES.map((status) => (
-            <Chip
-              key={status}
-              size="xs"
-              color="neutral"
-              selected={statusFilter === status}
-              onClick={() => onStatusFilterChange(status)}
-            >
-              {LEAD_STATUS_LABELS[status]} · {statusCounts[status]}
-            </Chip>
-          ))}
         </div>
       ) : null}
 
@@ -1299,6 +1351,7 @@ export function PresetTemplate(_props: PresetTemplateProps = {}) {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [view, setView] = useState<LeadsView>("results");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [noWebsiteOnly, setNoWebsiteOnly] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<LeadDto | null>(null);
   const [exporting, setExporting] = useState(false);
 
@@ -1387,6 +1440,7 @@ export function PresetTemplate(_props: PresetTemplateProps = {}) {
     query: serverProfile.lastQuery,
     location: serverProfile.lastLocation,
     radiusKm: serverProfile.lastRadiusKm,
+    withoutWebsite: serverProfile.lastWithoutWebsite,
   };
 
   const profileMutation = useMutation({
@@ -1405,7 +1459,15 @@ export function PresetTemplate(_props: PresetTemplateProps = {}) {
   const handleProfileChange = (patch: Partial<PitchProfile>) =>
     setProfileEdits({ ...profile, ...patch });
   const handleProfileCommit = () => {
-    if (profileEdits != null) persistProfile({ ...profileEdits, lastQuery: search.query, lastLocation: search.location, lastRadiusKm: search.radiusKm });
+    if (profileEdits != null) {
+      persistProfile({
+        ...profileEdits,
+        lastQuery: search.query,
+        lastLocation: search.location,
+        lastRadiusKm: search.radiusKm,
+        lastWithoutWebsite: search.withoutWebsite,
+      });
+    }
   };
   const handleSearchChange = (patch: Partial<LeadSearchParams>) =>
     setSearchEdits({ ...search, ...patch });
@@ -1424,8 +1486,11 @@ export function PresetTemplate(_props: PresetTemplateProps = {}) {
       setView("results");
       setActiveTab("leads");
       if (result.leads.length > 0) {
+        const noun = result.leads.length === 1 ? "business" : "businesses";
         toast.success(
-          `${result.leads.length} ${result.leads.length === 1 ? "business" : "businesses"} found near ${result.center.label}`,
+          params.withoutWebsite
+            ? `${result.leads.length} ${noun} with no website near ${result.center.label}`
+            : `${result.leads.length} ${noun} found near ${result.center.label}`,
         );
       }
     },
@@ -1439,6 +1504,7 @@ export function PresetTemplate(_props: PresetTemplateProps = {}) {
         query: params.query.trim(),
         location: params.location.trim(),
         radiusKm: params.radiusKm,
+        withoutWebsite: params.withoutWebsite,
       };
       if (trimmed.query.length === 0 || trimmed.location.length === 0) return;
       setSearchEdits(trimmed);
@@ -1449,6 +1515,7 @@ export function PresetTemplate(_props: PresetTemplateProps = {}) {
         lastQuery: trimmed.query,
         lastLocation: trimmed.location,
         lastRadiusKm: trimmed.radiusKm,
+        lastWithoutWebsite: trimmed.withoutWebsite,
       });
       searchMutation.mutate(trimmed);
     },
@@ -1800,6 +1867,8 @@ export function PresetTemplate(_props: PresetTemplateProps = {}) {
           onViewChange: setView,
           statusFilter,
           onStatusFilterChange: setStatusFilter,
+          noWebsiteOnly,
+          onNoWebsiteOnlyChange: setNoWebsiteOnly,
           selectedLeadSourceId: selectedLead?.sourceId ?? null,
           busyLeadSourceId,
           onPitch: handlePitchLead,

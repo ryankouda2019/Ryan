@@ -14,6 +14,11 @@ your name and your offer, using Kling 3.0's native lip-synced audio.
 1. **Find leads** — type a business type and a city. The app geocodes the location
    with Nominatim and lists named businesses around it from OpenStreetMap
    (Overpass API): phone, website, email and address when they are public.
+   Switch on **No website only** to return just the businesses that have no site
+   of their own. That filter runs inside the map query, so the result cap is
+   spent on those businesses instead of the ones that already have a site. The
+   Leads tab also has a **No website** chip that narrows whatever is on screen,
+   including your saved pipeline.
 2. **Pick a lead and write your offer** — choose a business, add your name and one or
    two sentences about what you offer. The script is built automatically and can be
    previewed before generating. Tone, aspect ratio (16:9 / 9:16 / 1:1), duration

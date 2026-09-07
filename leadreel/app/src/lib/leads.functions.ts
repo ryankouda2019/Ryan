@@ -74,6 +74,7 @@ interface ProfileRow {
   last_query: string;
   last_location: string;
   last_radius_km: number;
+  last_without_website: number;
 }
 
 const LEAD_COLUMNS = `l.id, l.source_id, l.name, l.category, l.address, l.city, l.phone, l.website,
@@ -118,6 +119,7 @@ function rowToProfile(row: ProfileRow | null): PitchProfile {
     lastRadiusKm: (RADIUS_OPTIONS_KM as readonly number[]).includes(radius)
       ? radius
       : DEFAULT_PITCH_PROFILE.lastRadiusKm,
+    lastWithoutWebsite: Number(row.last_without_website) === 1,
   };
 }
 
@@ -155,6 +157,7 @@ const searchInput = z.object({
   query: z.string().trim().min(1).max(80),
   location: z.string().trim().min(1).max(160),
   radiusKm: z.number().int().min(1).max(50),
+  withoutWebsite: z.boolean(),
 });
 
 /** Geocode + Overpass search, with saved-lead state merged onto the results. */
@@ -169,7 +172,12 @@ export const searchLeadsFn = createServerFn({ method: "POST" })
       let leads: LeadDto[];
       try {
         center = await geocodeLocation(data.location);
-        leads = await searchNearbyBusinesses(data.query, center, data.radiusKm);
+        leads = await searchNearbyBusinesses(
+          data.query,
+          center,
+          data.radiusKm,
+          data.withoutWebsite,
+        );
       } catch (error) {
         if (error instanceof LeadSearchError) return fail(error.code, error.message);
         console.error("[leads] search failed", {
@@ -363,7 +371,8 @@ export const getPitchProfileFn = createServerFn({ method: "POST" }).handler(
     withUserDb("getPitchProfile", async (userId, db) => {
       const row = await db
         .prepare(
-          `SELECT sender_name, offer, tone, last_query, last_location, last_radius_km
+          `SELECT sender_name, offer, tone, last_query, last_location, last_radius_km,
+                  last_without_website
            FROM pitch_profiles WHERE user_id = ?`,
         )
         .bind(userId)
@@ -379,6 +388,7 @@ const profileInput = z.object({
   lastQuery: z.string().max(80),
   lastLocation: z.string().max(160),
   lastRadiusKm: z.number().int().min(1).max(50),
+  lastWithoutWebsite: z.boolean(),
 });
 
 export const savePitchProfileFn = createServerFn({ method: "POST" })
@@ -388,12 +398,15 @@ export const savePitchProfileFn = createServerFn({ method: "POST" })
       withUserDb("savePitchProfile", async (userId, db) => {
         await db
           .prepare(
-            `INSERT INTO pitch_profiles (user_id, sender_name, offer, tone, last_query, last_location, last_radius_km)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
+            `INSERT INTO pitch_profiles (user_id, sender_name, offer, tone, last_query, last_location,
+                                         last_radius_km, last_without_website)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(user_id) DO UPDATE SET
                sender_name = excluded.sender_name, offer = excluded.offer, tone = excluded.tone,
                last_query = excluded.last_query, last_location = excluded.last_location,
-               last_radius_km = excluded.last_radius_km, updated_at = datetime('now')`,
+               last_radius_km = excluded.last_radius_km,
+               last_without_website = excluded.last_without_website,
+               updated_at = datetime('now')`,
           )
           .bind(
             userId,
@@ -403,6 +416,7 @@ export const savePitchProfileFn = createServerFn({ method: "POST" })
             data.lastQuery.trim(),
             data.lastLocation.trim(),
             data.lastRadiusKm,
+            data.lastWithoutWebsite ? 1 : 0,
           )
           .run();
         return { ok: true, profile: data };

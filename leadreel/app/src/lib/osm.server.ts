@@ -242,6 +242,10 @@ function singularize(term: string): string {
 }
 
 const CATEGORY_KEY_REGEX = `^(${CATEGORY_KEYS.join("|")})$`;
+
+/** Every tag that can carry a business's own site; all must be absent. */
+const WEBSITE_TAGS = ["website", "contact:website", "url"] as const;
+const NO_WEBSITE_FILTER = WEBSITE_TAGS.map((tag) => `[!"${tag}"]`).join("");
 const EARTH_RADIUS_M = 6_371_000;
 
 /** Bounding box (south, west, north, east) covering `radiusM` around the center. */
@@ -274,20 +278,30 @@ function distanceMeters(a: { lat: number; lon: number }, b: { lat: number; lon: 
  * the term", both scoped to elements that carry a business category key so the
  * scan never touches every named road or building. Nodes + ways only. The
  * circle is enforced afterwards with `distanceMeters`.
+ *
+ * `withoutWebsite` filters inside the query rather than after it: the result
+ * cap would otherwise be filled by businesses that do have a site, leaving
+ * only a handful of the ones actually being looked for.
  */
-function buildOverpassQuery(term: string, center: LeadSearchCenter, radiusM: number): string {
+function buildOverpassQuery(
+  term: string,
+  center: LeadSearchCenter,
+  radiusM: number,
+  withoutWebsite: boolean,
+): string {
   const singular = singularize(term);
   const exactPairs = new Set<string>([...(SYNONYMS[term] ?? []), ...(SYNONYMS[singular] ?? [])]);
   const regex = termRegex(singular);
+  const noSite = withoutWebsite ? NO_WEBSITE_FILTER : "";
   const clauses: string[] = [];
 
   for (const pair of exactPairs) {
     const [key, value] = pair.split("=");
-    if (key && value) clauses.push(`nw["name"]["${key}"="${value}"];`);
+    if (key && value) clauses.push(`nw["name"]["${key}"="${value}"]${noSite};`);
   }
   if (regex.length > 0) {
-    clauses.push(`nw["name"][~"${CATEGORY_KEY_REGEX}"~"${regex}",i];`);
-    clauses.push(`nw["name"~"${regex}",i][~"${CATEGORY_KEY_REGEX}"~"."];`);
+    clauses.push(`nw["name"][~"${CATEGORY_KEY_REGEX}"~"${regex}",i]${noSite};`);
+    clauses.push(`nw["name"~"${regex}",i][~"${CATEGORY_KEY_REGEX}"~"."]${noSite};`);
   }
 
   return (
@@ -456,19 +470,23 @@ export async function searchNearbyBusinesses(
   query: string,
   center: LeadSearchCenter,
   radiusKm: number,
+  withoutWebsite = false,
 ): Promise<LeadDto[]> {
   const term = normalizeTerm(query);
   if (term.length === 0) {
     throw new LeadSearchError("search_failed", "Describe the kind of business you're looking for.");
   }
   const radiusM = Math.min(Math.max(radiusKm, 1), 50) * 1000;
-  const body = await runOverpass(buildOverpassQuery(term, center, radiusM));
+  const body = await runOverpass(buildOverpassQuery(term, center, radiusM, withoutWebsite));
 
   const seen = new Set<string>();
   const leads: LeadDto[] = [];
   for (const element of body.elements ?? []) {
     const lead = elementToLead(element);
     if (!lead) continue;
+    // A malformed or non-http site value survives the query filter but is
+    // dropped by normalizeWebsite, so re-check the parsed lead too.
+    if (withoutWebsite && lead.website != null) continue;
     if (lead.lat != null && lead.lon != null) {
       if (distanceMeters(center, { lat: lead.lat, lon: lead.lon }) > radiusM) continue;
     }

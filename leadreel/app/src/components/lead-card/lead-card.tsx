@@ -23,6 +23,8 @@ import {
   LEAD_STATUSES,
   LEAD_STATUS_LABELS,
   describeLead,
+  hasWebsite,
+  hasWebsite,
   hostLabel,
   isLeadStatus,
   mailHref,
@@ -148,6 +150,7 @@ export function LeadCard({
           </Typography>
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             {lead.category ? <Tag color="neutral">{lead.category}</Tag> : null}
+            {hasWebsite(lead) ? null : <Tag color="brand">No website</Tag>}
             {lead.saved ? <LeadStatusBadge status={lead.status} /> : null}
             {selected ? <Badge variant="limeSubtle" size="xs" text="Pitching" /> : null}
           </div>

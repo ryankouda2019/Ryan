@@ -73,6 +73,13 @@ export interface LeadSearchParams {
   query: string;
   location: string;
   radiusKm: number;
+  /** Return only businesses with no website listed — the strongest pitch. */
+  withoutWebsite: boolean;
+}
+
+/** A lead with no site of its own is the one a video pitch helps most. */
+export function hasWebsite(lead: Pick<LeadDto, "website">): boolean {
+  return lead.website != null && lead.website !== "";
 }
 
 export const RADIUS_OPTIONS_KM = [5, 10, 25, 50] as const;
@@ -98,6 +105,7 @@ export interface PitchProfile {
   lastQuery: string;
   lastLocation: string;
   lastRadiusKm: number;
+  lastWithoutWebsite: boolean;
 }
 
 export const DEFAULT_PITCH_PROFILE: PitchProfile = {
@@ -107,6 +115,7 @@ export const DEFAULT_PITCH_PROFILE: PitchProfile = {
   lastQuery: "",
   lastLocation: "",
   lastRadiusKm: 10,
+  lastWithoutWebsite: false,
 };
 
 export const EXAMPLE_OFFER =
