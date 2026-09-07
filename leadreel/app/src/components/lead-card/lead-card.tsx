@@ -8,6 +8,7 @@ import {
   Globe,
   Mail,
   MapPin,
+  MessageSquareText,
   Phone,
   X,
 } from "lucide-react";
@@ -22,12 +23,14 @@ import { Typography } from "@higgsfield/quanta/typography";
 import {
   LEAD_STATUSES,
   LEAD_STATUS_LABELS,
+  OPPORTUNITY_TIER_LABELS,
   describeLead,
   hasWebsite,
   hostLabel,
   isLeadStatus,
   mailHref,
   safeHref,
+  scoreLead,
   telHref,
   type LeadDto,
   type LeadStatus,
@@ -112,6 +115,8 @@ export interface LeadCardProps {
   /** A save / remove / status request for this lead is in flight. */
   busy?: boolean;
   onPitch: (lead: LeadDto) => void;
+  /** Open the outreach draft for this lead. */
+  onMessage: (lead: LeadDto) => void;
   onToggleSave: (lead: LeadDto) => void;
   onStatusChange: (lead: LeadDto, status: LeadStatus) => void;
   onShowVideos?: (lead: LeadDto) => void;
@@ -122,11 +127,13 @@ export function LeadCard({
   selected = false,
   busy = false,
   onPitch,
+  onMessage,
   onToggleSave,
   onStatusChange,
   onShowVideos,
 }: LeadCardProps) {
   const website = safeHref(lead.website);
+  const opportunity = scoreLead(lead);
   const phoneHref = lead.phone ? telHref(lead.phone) : null;
   const emailHref = lead.email ? mailHref(lead.email) : null;
   const place = [lead.address, lead.city].filter((part): part is string => !!part).join(", ");
@@ -154,22 +161,37 @@ export function LeadCard({
             {selected ? <Badge variant="limeSubtle" size="xs" text="Pitching" /> : null}
           </div>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          iconOnly
-          disabled={busy}
-          aria-label={lead.saved ? `Remove ${lead.name} from saved leads` : `Save ${lead.name}`}
-          aria-pressed={lead.saved}
-          onClick={() => onToggleSave(lead)}
-          start={
-            busy ? (
-              <Loader size="xs" color="neutral" />
-            ) : (
-              <Icon as={lead.saved ? BookmarkCheck : Bookmark} size="sm" color={lead.saved ? "brand" : "secondary"} />
-            )
-          }
-        />
+        <div className="flex shrink-0 items-center gap-1">
+          <Typography
+            as="span"
+            variant="caption-xs-regular"
+            color={opportunity.tier === "high" ? "brand" : "tertiary"}
+            className="tabular-nums"
+            title={opportunity.reasons.join(" · ")}
+          >
+            {opportunity.score} · {OPPORTUNITY_TIER_LABELS[opportunity.tier]}
+          </Typography>
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            disabled={busy}
+            aria-label={lead.saved ? `Remove ${lead.name} from saved leads` : `Save ${lead.name}`}
+            aria-pressed={lead.saved}
+            onClick={() => onToggleSave(lead)}
+            start={
+              busy ? (
+                <Loader size="xs" color="neutral" />
+              ) : (
+                <Icon
+                  as={lead.saved ? BookmarkCheck : Bookmark}
+                  size="sm"
+                  color={lead.saved ? "brand" : "secondary"}
+                />
+              )
+            }
+          />
+        </div>
       </header>
 
       {hasContact ? (
@@ -225,6 +247,14 @@ export function LeadCard({
         >
           {selected ? "Selected" : "Pitch this lead"}
         </Button>
+        <Button
+          variant="tertiary"
+          size="sm"
+          iconOnly
+          aria-label={`Write a message to ${lead.name}`}
+          onClick={() => onMessage(lead)}
+          start={<Icon as={MessageSquareText} size="sm" />}
+        />
         {lead.saved ? (
           <LeadStatusSelect
             value={lead.status}

@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireCurrentUser } from "@/lib/auth.server";
 import { DbUnavailableError, getDb } from "@/lib/db.server";
+import { scoreLead } from "@/lib/leads.shared";
 
 /**
  * CSV export of the signed-in user's saved leads. Fetched with credentials by
@@ -36,6 +37,8 @@ const HEADER = [
   "email",
   "status",
   "notes",
+  "opportunity_score",
+  "opportunity_tier",
   "pitch_videos",
   "lat",
   "lon",
@@ -77,8 +80,9 @@ export const Route = createFileRoute("/api/leads/export")({
 
           const lines = [
             HEADER.join(","),
-            ...rows.results.map((row) =>
-              [
+            ...rows.results.map((row) => {
+              const opportunity = scoreLead(row);
+              return [
                 row.name,
                 row.category,
                 row.address,
@@ -88,6 +92,8 @@ export const Route = createFileRoute("/api/leads/export")({
                 row.email,
                 row.status,
                 row.notes,
+                opportunity.score,
+                opportunity.tier,
                 row.pitch_count ?? 0,
                 row.lat,
                 row.lon,
@@ -96,8 +102,8 @@ export const Route = createFileRoute("/api/leads/export")({
                 row.updated_at,
               ]
                 .map(csvCell)
-                .join(","),
-            ),
+                .join(",");
+            }),
           ];
 
           return new Response(`\uFEFF${lines.join("\r\n")}\r\n`, {

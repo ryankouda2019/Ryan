@@ -52,6 +52,7 @@ import type {
 import { Composer } from "@/components/composer";
 import type { GalleryItem } from "@/components/gallery";
 import { LeadCard, SelectedLeadCard } from "@/components/lead-card";
+import { OutreachModal } from "@/components/outreach-modal";
 import { RailFooter } from "@/components/rail-footer";
 import { ScreenEmptyState } from "@/components/screen-empty-state";
 import { SettingTrigger } from "@/components/setting-trigger";
@@ -85,6 +86,7 @@ import {
   PITCH_TONES,
   PITCH_TONE_LABELS,
   RADIUS_OPTIONS_KM,
+  compareByOpportunity,
   hasWebsite,
   isPitchTone,
   toLeadInput,
@@ -786,6 +788,7 @@ interface LeadsPanelProps {
   selectedLeadSourceId: string | null;
   busyLeadSourceId: string | null;
   onPitch: (lead: LeadDto) => void;
+  onMessage: (lead: LeadDto) => void;
   onToggleSave: (lead: LeadDto) => void;
   onStatusChange: (lead: LeadDto, status: LeadStatus) => void;
   onShowVideos: (lead: LeadDto) => void;
@@ -824,6 +827,7 @@ function LeadsPanel({
   selectedLeadSourceId,
   busyLeadSourceId,
   onPitch,
+  onMessage,
   onToggleSave,
   onStatusChange,
   onShowVideos,
@@ -835,10 +839,11 @@ function LeadsPanel({
   const filtering = filter.length > 0 || noWebsiteOnly;
   const passesFilters = (lead: LeadDto) =>
     matchesFilter(lead, filter) && (!noWebsiteOnly || !hasWebsite(lead));
-  const visibleSaved = savedLeads.filter(
-    (lead) => (statusFilter === "all" || lead.status === statusFilter) && passesFilters(lead),
-  );
-  const visibleResults = results.filter(passesFilters);
+  // Both views rank the same way, so the best lead is always the first tile.
+  const visibleSaved = savedLeads
+    .filter((lead) => (statusFilter === "all" || lead.status === statusFilter) && passesFilters(lead))
+    .sort(compareByOpportunity);
+  const visibleResults = results.filter(passesFilters).sort(compareByOpportunity);
   const leads = view === "results" ? visibleResults : visibleSaved;
   const sourceLeads = view === "results" ? results : savedLeads;
   const noWebsiteCount = sourceLeads.filter((lead) => !hasWebsite(lead)).length;
@@ -1000,9 +1005,9 @@ function LeadsPanel({
         >
           Saved{signedIn ? ` · ${savedLeads.length}` : ""}
         </Chip>
-        {center != null && view === "results" ? (
+        {leads.length > 0 ? (
           <Typography as="span" variant="caption-sm-regular" color="tertiary" truncate className="min-w-0">
-            near {center.label}
+            {center != null && view === "results" ? `near ${center.label} · ` : ""}sorted by opportunity
           </Typography>
         ) : null}
         <span className="flex-1" />
@@ -1067,6 +1072,7 @@ function LeadsPanel({
                 selected={lead.sourceId === selectedLeadSourceId}
                 busy={lead.sourceId === busyLeadSourceId}
                 onPitch={onPitch}
+                onMessage={onMessage}
                 onToggleSave={onToggleSave}
                 onStatusChange={onStatusChange}
                 onShowVideos={onShowVideos}
@@ -1352,6 +1358,7 @@ export function PresetTemplate(_props: PresetTemplateProps = {}) {
   const [view, setView] = useState<LeadsView>("results");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [noWebsiteOnly, setNoWebsiteOnly] = useState(false);
+  const [messageLead, setMessageLead] = useState<LeadDto | null>(null);
   const [removeTarget, setRemoveTarget] = useState<LeadDto | null>(null);
   const [exporting, setExporting] = useState(false);
 
@@ -1810,6 +1817,17 @@ export function PresetTemplate(_props: PresetTemplateProps = {}) {
           if (!open) setPendingSignInUrl(null);
         }}
       />
+      <OutreachModal
+        lead={messageLead}
+        profile={profile}
+        onOpenChange={(open) => {
+          if (!open) setMessageLead(null);
+        }}
+        onPitch={(lead) => {
+          setMessageLead(null);
+          handlePitchLead(lead);
+        }}
+      />
       <RemoveLeadModal
         lead={removeTarget}
         busy={deleteMutation.isPending}
@@ -1872,6 +1890,7 @@ export function PresetTemplate(_props: PresetTemplateProps = {}) {
           selectedLeadSourceId: selectedLead?.sourceId ?? null,
           busyLeadSourceId,
           onPitch: handlePitchLead,
+          onMessage: setMessageLead,
           onToggleSave: handleToggleSave,
           onStatusChange: handleStatusChange,
           onShowVideos: handleShowVideos,

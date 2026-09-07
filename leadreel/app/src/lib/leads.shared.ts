@@ -188,6 +188,108 @@ export function buildPitchPrompt(input: PitchPromptInput): string {
   ].join(" ");
 }
 
+export type OpportunityTier = "high" | "medium" | "low";
+
+export interface LeadOpportunity {
+  /** 0-100. Comparable across searches, not a probability. */
+  score: number;
+  tier: OpportunityTier;
+  /** Short factual phrases behind the score. */
+  reasons: string[];
+}
+
+export const OPPORTUNITY_TIER_LABELS: Record<OpportunityTier, string> = {
+  high: "Strong fit",
+  medium: "Worth a try",
+  low: "Long shot",
+};
+
+/**
+ * How promising a lead is, derived only from what OpenStreetMap actually
+ * lists. Two things decide it: how much the business NEEDS what you sell — no
+ * website is the loudest signal — and whether you can REACH them at all. A
+ * business with no site and no phone number is a walk-in, not a lead, so
+ * reachability caps the score no matter how badly they need the help.
+ */
+export function scoreLead(
+  lead: Pick<LeadDto, "website" | "phone" | "email" | "address">,
+): LeadOpportunity {
+  const site = hasWebsite(lead);
+  const phone = lead.phone != null && lead.phone !== "";
+  const email = lead.email != null && lead.email !== "";
+  const reach = (phone ? 30 : 0) + (email ? 10 : 0);
+  const raw = (site ? 20 : 60) + reach + (lead.address ? 10 : 0);
+  const score = Math.min(100, reach === 0 ? Math.min(raw, 45) : raw);
+
+  const reasons: string[] = [];
+  if (!site) reasons.push("No website");
+  if (phone) reasons.push("Phone listed");
+  else if (email) reasons.push("Email listed");
+  else reasons.push("No contact listed");
+  if (lead.address) reasons.push("Street address");
+
+  return { score, tier: score >= 80 ? "high" : score >= 50 ? "medium" : "low", reasons };
+}
+
+/** Best opportunities first, ties broken by name so the order never jitters. */
+export function compareByOpportunity(a: LeadDto, b: LeadDto): number {
+  return scoreLead(b).score - scoreLead(a).score || a.name.localeCompare(b.name);
+}
+
+export interface OutreachDraft {
+  subject: string;
+  email: string;
+  sms: string;
+}
+
+function firstSentence(text: string): string {
+  const clean = text.replace(/\s+/g, " ").trim();
+  const stop = clean.search(/[.!?](\s|$)/);
+  return stop > 0 ? clean.slice(0, stop + 1) : clean;
+}
+
+/**
+ * The message that goes with the video. Everything here comes from the lead's
+ * own listing and the user's saved pitch, so nothing is invented about the
+ * business — the "no website" line is only used when the listing really has no
+ * site.
+ */
+export function buildOutreach(
+  lead: Pick<LeadDto, "name" | "category" | "city" | "website">,
+  profile: Pick<PitchProfile, "senderName" | "offer">,
+): OutreachDraft {
+  const name = lead.name.replace(/\s+/g, " ").trim() || "there";
+  const sender = profile.senderName.replace(/\s+/g, " ").trim() || "a local partner";
+  const offer = firstSentence(profile.offer || EXAMPLE_OFFER);
+  const trade = lead.category?.trim() || "business like yours";
+  const place = lead.city?.trim();
+  const site = hasWebsite(lead);
+
+  const context = site
+    ? `I had a look at ${hostLabel(lead.website ?? "")} and had a couple of ideas specific to ${name}.`
+    : `Right now there's no website listed for you, so someone searching for a ${trade}${place ? ` in ${place}` : ""} has a hard time finding you at all.`;
+
+  const subject = site ? `Quick idea for ${name}` : `${name} is hard to find online`;
+
+  const email = [
+    `Hi ${name} team,`,
+    "",
+    `I'm ${sender}. ${offer}`,
+    "",
+    context,
+    "",
+    `If it's useful I'll send over a short video showing exactly what that would look like for ${name} — no charge, no commitment.`,
+    "",
+    "Worth a look?",
+    "",
+    sender,
+  ].join("\n");
+
+  const sms = `Hi ${name} — ${sender} here. ${offer} Can I send you a 30-second video showing what it would look like? No charge.`;
+
+  return { subject, email, sms };
+}
+
 /** "dentist · Lynchburg" style one-liner for compact lead labels. */
 export function describeLead(lead: Pick<LeadDto, "category" | "city">): string {
   return [lead.category, lead.city].filter((part): part is string => part != null && part !== "").join(" · ");

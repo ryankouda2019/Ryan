@@ -1,3 +1,4 @@
+import { compareByOpportunity } from "./leads.shared";
 import type { LeadDto, LeadSearchCenter } from "./leads.shared";
 
 /**
@@ -409,13 +410,6 @@ function elementToLead(element: OverpassElement): LeadDto | null {
   };
 }
 
-/** Leads with more ways to reach them rank first. */
-function contactScore(lead: LeadDto): number {
-  return (
-    (lead.phone ? 3 : 0) + (lead.website ? 2 : 0) + (lead.email ? 2 : 0) + (lead.address ? 1 : 0)
-  );
-}
-
 export async function geocodeLocation(location: string): Promise<LeadSearchCenter> {
   const url = new URL(NOMINATIM_URL);
   url.searchParams.set("q", location.trim());
@@ -581,6 +575,7 @@ export async function searchNearbyBusinesses(
     leads.push(lead);
   }
 
-  leads.sort((a, b) => contactScore(b) - contactScore(a) || a.name.localeCompare(b.name));
+  // Best opportunities survive the result cap, not merely the first 60 names.
+  leads.sort(compareByOpportunity);
   return leads.slice(0, MAX_SEARCH_RESULTS);
 }
