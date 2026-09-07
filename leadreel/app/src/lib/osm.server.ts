@@ -16,11 +16,13 @@ const OVERPASS_URLS = [
 ] as const;
 const USER_AGENT = "LeadReel/1.0 (Higgsfield app; local business lead discovery)";
 const GEOCODE_TIMEOUT_MS = 12_000;
-const OVERPASS_EXACT_TIMEOUT_MS = 25_000;
-const OVERPASS_FUZZY_TIMEOUT_MS = 18_000;
+const OVERPASS_EXACT_TIMEOUT_MS = 20_000;
+const OVERPASS_FUZZY_TIMEOUT_MS = 12_000;
 const OVERPASS_QUERY_TIMEOUT_S = 20;
-/** Skip the scanning pass when the indexed pass already spent this long. */
-const FUZZY_PASS_BUDGET_MS = 14_000;
+/** Whole-search wall clock. A search that takes longer has already failed the user. */
+const SEARCH_BUDGET_MS = 45_000;
+/** Don't start the scanning pass this close to the budget. */
+const MIN_PASS_MS = 3_000;
 export const MAX_SEARCH_RESULTS = 60;
 
 export class LeadSearchError extends Error {
@@ -445,9 +447,17 @@ export async function geocodeLocation(location: string): Promise<LeadSearchCente
   return { lat, lon, label };
 }
 
-async function runOverpass(query: string, timeoutMs: number): Promise<OverpassResponse> {
+async function runOverpass(
+  query: string,
+  timeoutMs: number,
+  deadline: number,
+  maxEndpoints = OVERPASS_URLS.length,
+): Promise<OverpassResponse> {
   let lastError: unknown;
-  for (const endpoint of OVERPASS_URLS) {
+  for (const endpoint of OVERPASS_URLS.slice(0, maxEndpoints)) {
+    // Every mirror gets what is left of the budget, never more.
+    const remaining = deadline - Date.now();
+    if (remaining < MIN_PASS_MS) break;
     try {
       const response = await fetch(endpoint, {
         method: "POST",
@@ -457,7 +467,7 @@ async function runOverpass(query: string, timeoutMs: number): Promise<OverpassRe
           "Content-Type": "application/x-www-form-urlencoded",
         },
         body: new URLSearchParams({ data: query }),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(Math.min(timeoutMs, remaining)),
       });
       if (!response.ok) {
         lastError = new Error(`Overpass ${endpoint} answered ${response.status}`);
@@ -495,23 +505,32 @@ export async function searchNearbyBusinesses(
   const radiusM = Math.min(Math.max(radiusKm, 1), 50) * 1000;
   const queries = buildOverpassQueries(term, center, radiusM, withoutWebsite);
 
+  const deadline = Date.now() + SEARCH_BUDGET_MS;
   const elements: OverpassElement[] = [];
   let failure: unknown;
-  const startedAt = Date.now();
 
   if (queries.exact != null) {
     try {
-      const body = await runOverpass(queries.exact, OVERPASS_EXACT_TIMEOUT_MS);
+      const body = await runOverpass(queries.exact, OVERPASS_EXACT_TIMEOUT_MS, deadline);
       elements.push(...(body.elements ?? []));
     } catch (error) {
       failure = error;
     }
   }
-  // Well-known terms already have their matches; a slow scanning pass then only
-  // costs the user extra names, never the whole search.
-  if (queries.fuzzy != null && Date.now() - startedAt < FUZZY_PASS_BUDGET_MS) {
+  // The scanning pass only ever ADDS near-matches, so it is skipped whenever it
+  // cannot change what the user sees — the indexed pass already filled the page
+  // — and gets one mirror rather than the full fallback chain once that pass
+  // has results. For a term with no known tags it is the only pass, so there it
+  // keeps the whole budget and every mirror.
+  const exactFilledThePage = elements.length >= MAX_SEARCH_RESULTS;
+  if (queries.fuzzy != null && !exactFilledThePage && deadline - Date.now() > MIN_PASS_MS) {
     try {
-      const body = await runOverpass(queries.fuzzy, OVERPASS_FUZZY_TIMEOUT_MS);
+      const body = await runOverpass(
+        queries.fuzzy,
+        OVERPASS_FUZZY_TIMEOUT_MS,
+        deadline,
+        elements.length > 0 ? 1 : OVERPASS_URLS.length,
+      );
       elements.push(...(body.elements ?? []));
     } catch (error) {
       failure ??= error;
