@@ -517,20 +517,23 @@ export async function searchNearbyBusinesses(
   const deadline = Date.now() + SEARCH_BUDGET_MS;
   const elements: OverpassElement[] = [];
   let failure: unknown;
+  let exactAnswered = false;
 
   if (queries.exact != null) {
     try {
       const body = await runOverpass(queries.exact, OVERPASS_EXACT_TIMEOUT_MS, deadline);
       elements.push(...(body.elements ?? []));
+      exactAnswered = true;
     } catch (error) {
       failure = error;
     }
   }
-  // The scanning pass only ever ADDS near-matches, so it is skipped whenever it
-  // cannot change what the user sees — the indexed pass already filled the page
-  // — and gets one mirror rather than the full fallback chain once that pass
-  // has results. For a term with no known tags it is the only pass, so there it
-  // keeps the whole budget and every mirror.
+  // The scanning pass only ever ADDS near-matches, so it is skipped when the
+  // indexed pass already filled the page, and gets ONE mirror rather than the
+  // full fallback chain whenever that pass answered — a term with known tags
+  // has its authoritative matches already, so the scan is a bonus that must not
+  // cost the user the search. For a term with no known tags it is the only
+  // pass, so there it keeps every mirror and the whole budget.
   const exactFilledThePage = elements.length >= MAX_SEARCH_RESULTS;
   if (queries.fuzzy != null && !exactFilledThePage && deadline - Date.now() > MIN_PASS_MS) {
     try {
@@ -538,14 +541,16 @@ export async function searchNearbyBusinesses(
         queries.fuzzy,
         OVERPASS_FUZZY_TIMEOUT_MS,
         deadline,
-        elements.length > 0 ? 1 : OVERPASS_URLS.length,
+        exactAnswered ? 1 : OVERPASS_URLS.length,
       );
       elements.push(...(body.elements ?? []));
     } catch (error) {
       failure ??= error;
     }
   }
-  if (elements.length === 0 && failure != null) {
+  // A bonus pass that gave up is not a failed search: "no plumbers here" beats
+  // an error. Only an unanswered indexed pass leaves nothing to report.
+  if (elements.length === 0 && failure != null && !exactAnswered) {
     // A wide box is the usual reason the public servers give up: 25 km covers
     // six times the ground of 10 km. Say so instead of just "busy".
     throw failure instanceof LeadSearchError && radiusKm > 10
